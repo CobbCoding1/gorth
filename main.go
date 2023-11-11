@@ -27,12 +27,15 @@ const (
 	over_type
 	rot_type
 	print_type
+    printstr_type
 	emit_type
 	cr_type
+    quote_type
 	colon_type
 	semi_type
 	word_type
 	if_type
+    else_type
 	then_type
 )
 
@@ -100,8 +103,6 @@ func lex_file(filename string) []Token {
 			token.category = add_type
 		case "-":
 			token.category = sub_type
-		case ".":
-			token.category = print_type
 		case "*":
 			token.category = mul_type
 		case "/":
@@ -130,6 +131,12 @@ func lex_file(filename string) []Token {
 			token.category = over_type
 		case "rot":
 			token.category = rot_type
+		case ".":
+			token.category = print_type
+        case ".\"":
+            token.category = printstr_type
+        case "\"":
+            token.category = quote_type
 		case "emit":
 			token.category = emit_type
 		case "cr":
@@ -140,6 +147,8 @@ func lex_file(filename string) []Token {
 			token.category = semi_type
 		case "if":
 			token.category = if_type
+		case "else":
+			token.category = else_type
 		case "then":
 			token.category = then_type
 		default:
@@ -151,6 +160,7 @@ func lex_file(filename string) []Token {
 				token.value = val
 			}
 		}
+        token.value = val
 		tokens = append(tokens, token)
 	}
 
@@ -161,6 +171,7 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 	in_word := false
 	var current_word string
 	var word_tokens []Token
+    var string_buffer string
 
 	for i := 0; i < len(tokens); i++ {
 		val := tokens[i]
@@ -170,7 +181,13 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 				in_word = false
 			} else if val.category == word_type {
 				current_word = val.value
-			} else {
+			} else if val.category == printstr_type {
+                for index := 1; val.category != quote_type; i += index {
+                    val = tokens[i]
+                    word_tokens = append(word_tokens, val)
+                }
+                i--
+            } else {
 				word_tokens = append(word_tokens, val)
 			}
 		} else {
@@ -265,6 +282,23 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 			case print_type:
 				a := stack.pop()
 				fmt.Print(a)
+            case printstr_type:
+                for index := 1; val.category != quote_type; index++ {
+                    val = tokens[i]
+                    if val.category != printstr_type && val.category != quote_type {
+                        if index == 2 {
+                            string_buffer += val.value
+                        } else {
+                            string_buffer += " " + val.value
+                        }
+                    }
+                    i++
+                }
+                i--
+                fmt.Print(string_buffer)
+                string_buffer = ""
+            case quote_type:
+                log.Fatal("error in quote")
 			case emit_type:
 				a := stack.pop()
 				fmt.Print(string(a))
@@ -283,18 +317,30 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 			case if_type:
 				if is_word {
 					a := stack.peek()
-					if a != 0 {
-
-					} else {
-						for index := 0; val.category != then_type; index++ {
+					if a == 0 {
+						for index := 0; val.category != then_type && val.category != else_type; index++ {
 							val = tokens[i]
 							i++
 						}
+                        i--
 					}
 				} else {
 					log.Fatal("error if")
 				}
+            case else_type:
+                if is_word {
+					a := stack.peek()
+                    if a != 0 {
+                        for index := 0; val.category != then_type; index++ {
+                            val = tokens[i]
+                            i++
+                        }
+                    }
+                } else {
+                    log.Fatal("should not else")
+                }
 			case then_type:
+                //log.Fatal("should not then")
 			}
 		}
 	}
