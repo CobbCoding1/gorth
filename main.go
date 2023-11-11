@@ -37,6 +37,9 @@ const (
 	if_type
     else_type
 	then_type
+    do_type
+    loop_type
+    i_type
 )
 
 type Token struct {
@@ -47,6 +50,11 @@ type Token struct {
 type Stack struct {
 	stack      []int
 	stack_size int
+}
+
+type Loop struct {
+    current int
+    target int
 }
 
 func handle_error(err error) {
@@ -151,6 +159,12 @@ func lex_file(filename string) []Token {
 			token.category = else_type
 		case "then":
 			token.category = then_type
+        case "do":
+            token.category = do_type
+        case "loop":
+            token.category = loop_type
+        case "i":
+            token.category = i_type
 		default:
 			if is_digit(val) {
 				token.category = push_type
@@ -167,21 +181,24 @@ func lex_file(filename string) []Token {
 	return tokens
 }
 
-func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is_word bool) {
+func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is_word bool, current_word string) {
 	in_word := false
-	var current_word string
 	var word_tokens []Token
     var string_buffer string
-
+    var loop Loop
+    
 	for i := 0; i < len(tokens); i++ {
 		val := tokens[i]
+        if is_word {
+        }
 		if in_word {
 			if val.category == semi_type {
 				words[current_word] = word_tokens
+                word_tokens = nil
 				in_word = false
 			} else if val.category == word_type {
-				current_word = val.value
-			} else if val.category == printstr_type {
+
+            } else if val.category == printstr_type {
                 for index := 1; val.category != quote_type; i += index {
                     val = tokens[i]
                     word_tokens = append(word_tokens, val)
@@ -306,13 +323,14 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 				fmt.Println()
 			case colon_type:
 				in_word = true
+                current_word = tokens[i + 1].value 
 			case semi_type:
 				in_word = false
 			case word_type:
 				if in_word {
 					current_word = val.value
 				} else {
-					interpret_tokens(words[val.value], stack, words, true)
+					interpret_tokens(words[val.value], stack, words, true, current_word)
 				}
 			case if_type:
 				if is_word {
@@ -340,7 +358,33 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
                     log.Fatal("should not else")
                 }
 			case then_type:
-                //log.Fatal("should not then")
+            case do_type:
+                if is_word {
+                    starting := stack.pop()
+                    target := stack.pop()
+                    loop.current = starting
+                    loop.target = target
+                } else {
+                    log.Fatal("should not do")
+                }
+            case loop_type:
+                if is_word {
+                    if loop.current < loop.target - 1 {
+                        for index := 1; val.category != do_type; i -= index {
+                            val = tokens[i] 
+                        }
+                        loop.current += 1
+                    }
+                    i++
+                } else {
+                    log.Fatal("should not do")
+                }
+            case i_type:
+                if is_word {
+                    stack.push(loop.current)
+                } else {
+                    log.Fatal("should not do")
+                }
 			}
 		}
 	}
@@ -357,7 +401,8 @@ func main() {
 	tokens := lex_file(filename)
 
 	var stack Stack
+    var current_word string
 	words := make(map[string][]Token)
 
-	interpret_tokens(tokens, &stack, words, false)
+	interpret_tokens(tokens, &stack, words, false, current_word)
 }
