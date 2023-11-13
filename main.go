@@ -6,7 +6,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-    "unsafe"
 )
 
 const (
@@ -47,6 +46,8 @@ const (
     bang_type
     plus_bang_type
     question_type
+    cells_type
+    allot_type
 )
 
 type Token struct {
@@ -75,8 +76,8 @@ func (stack *Stack) push(value int) {
 	stack.stack_size++
 }
 
-func (stack *Stack) pop() int {
-	if stack.stack_size == 0 {
+func (stack *Stack)pop() int {
+	if stack.stack_size <= 0 {
 		log.Fatal("error: stack underflow")
 	}
 
@@ -184,6 +185,10 @@ func lex_file(filename string) []Token {
             token.category = plus_bang_type
         case "?":
             token.category = question_type
+        case "allot":
+            token.category = allot_type
+        case "cells":
+            token.category = cells_type
 		default:
 			if is_digit(val) {
 				token.category = push_type
@@ -200,20 +205,27 @@ func lex_file(filename string) []Token {
 	return tokens
 }
 
-func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is_word bool, 
-    current_word string, variables map[string]int, constants map[string]int) {
-	in_word := false
+type Gorth struct {
+    stack Stack
+    words map[string][]Token
+    is_word bool
+    current_word string
+    variables map[string]int
+    constants map[string]int
+    memory []int
+}
+
+func (gorth *Gorth) interpret_tokens(tokens []Token) {
+    in_word := false
 	var word_tokens []Token
     var string_buffer string
     var loop Loop
     
 	for i := 0; i < len(tokens); i++ {
 		val := tokens[i]
-        if is_word {
-        }
 		if in_word {
 			if val.category == semi_type {
-				words[current_word] = word_tokens
+				gorth.words[gorth.current_word] = word_tokens
                 word_tokens = nil
 				in_word = false
 			} else if val.category == word_type {
@@ -232,92 +244,92 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 			case push_type:
 				value, err := strconv.Atoi(val.value)
 				handle_error(err)
-				stack.push(value)
+				gorth.stack.push(value)
 			case add_type:
-				a := stack.pop()
-				b := stack.pop()
-				stack.push(b + a)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				gorth.stack.push(b + a)
 			case sub_type:
-				a := stack.pop()
-				b := stack.pop()
-				stack.push(b - a)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				gorth.stack.push(b - a)
 			case mul_type:
-				a := stack.pop()
-				b := stack.pop()
-				stack.push(b * a)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				gorth.stack.push(b * a)
 			case div_type:
-				a := stack.pop()
-				b := stack.pop()
-				stack.push(b / a)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				gorth.stack.push(b / a)
 			case mod_type:
-				a := stack.pop()
-				b := stack.pop()
-				stack.push(b % a)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				gorth.stack.push(b % a)
 			case equal_type:
-				a := stack.pop()
-				b := stack.pop()
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
 				if a == b {
-					stack.push(-1)
+					gorth.stack.push(-1)
 				} else {
-					stack.push(0)
+					gorth.stack.push(0)
 				}
 			case less_type:
-				a := stack.pop()
-				b := stack.pop()
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
 				if a > b {
-					stack.push(-1)
+					gorth.stack.push(-1)
 				} else {
-					stack.push(0)
+					gorth.stack.push(0)
 				}
 			case greater_type:
-				a := stack.pop()
-				b := stack.pop()
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
 				if a < b {
-					stack.push(-1)
+					gorth.stack.push(-1)
 				} else {
-					stack.push(0)
+					gorth.stack.push(0)
 				}
 			case and_type:
-				a := stack.pop()
-				b := stack.pop()
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
 				if a != 0 && b != 0 {
-					stack.push(-1)
+					gorth.stack.push(-1)
 				} else {
-					stack.push(0)
+					gorth.stack.push(0)
 				}
 			case or_type:
-				a := stack.pop()
-				b := stack.pop()
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
 				if a != 0 || b != 0 {
-					stack.push(-1)
+					gorth.stack.push(-1)
 				} else {
-					stack.push(0)
+					gorth.stack.push(0)
 				}
 			case invert_type:
-				a := stack.pop()
-				stack.push(-a - 1)
+				a := gorth.stack.pop()
+				gorth.stack.push(-a - 1)
 			case drop_type:
-				stack.pop()
+				gorth.stack.pop()
 			case dup_type:
-				a := stack.peek()
-				stack.push(a)
+				a := gorth.stack.peek()
+				gorth.stack.push(a)
 			case swap_type:
-				a := stack.pop()
-				b := stack.pop()
-				stack.push(a)
-				stack.push(b)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				gorth.stack.push(a)
+				gorth.stack.push(b)
 			case over_type:
-				a := stack.stack[stack.stack_size-2]
-				stack.push(a)
+				a := gorth.stack.stack[gorth.stack.stack_size-2]
+				gorth.stack.push(a)
 			case rot_type:
-				a := stack.pop()
-				b := stack.pop()
-				c := stack.pop()
-				stack.push(b)
-				stack.push(a)
-				stack.push(c)
+				a := gorth.stack.pop()
+				b := gorth.stack.pop()
+				c := gorth.stack.pop()
+				gorth.stack.push(b)
+				gorth.stack.push(a)
+				gorth.stack.push(c)
 			case print_type:
-				a := stack.pop()
+				a := gorth.stack.pop()
 				fmt.Print(a)
             case printstr_type:
                 for index := 1; val.category != quote_type; index++ {
@@ -337,46 +349,51 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
             case quote_type:
                 log.Fatal("error in quote")
 			case emit_type:
-				a := stack.pop()
+				a := gorth.stack.pop()
 				fmt.Print(string(a))
 			case cr_type:
 				fmt.Println()
 			case colon_type:
 				in_word = true
                 i++
-                current_word = tokens[i].value 
+                gorth.current_word = tokens[i].value 
 			case semi_type:
 				in_word = false
 			case word_type:
-                variable, ok := variables[val.value]
-                constant, cok := constants[val.value]
+                ptr, ok := gorth.variables[val.value]
+                constant, cok := gorth.constants[val.value]
                 if cok {
-                    stack.push(constant)
+                    gorth.stack.push(constant)
                 } else if ok {
-                    ptr := (int)(uintptr(unsafe.Pointer(&variable)))
-                    if tokens[i + 1].category == bang_type {
-                        a := stack.pop()
-                        variables[val.value] = a
-                    } else if tokens[i + 1].category == plus_bang_type {
-                        a := stack.pop()
-                        variables[val.value] = variable + a
+                    variable := gorth.memory[ptr] 
+                    if i + 1 >= len(tokens) {
+                        gorth.stack.push(ptr)
                     } else {
-                        stack.push(ptr)
+                        if tokens[i + 1].category == bang_type {
+                            a := gorth.stack.pop()
+                            gorth.memory[ptr] = a
+                        } else if tokens[i + 1].category == plus_bang_type {
+                            a := gorth.stack.pop()
+                            gorth.memory[ptr] = variable + a
+                        } else {
+                            gorth.stack.push(ptr)
+                        }
                     }
                 } else if in_word {
-					current_word = val.value
+					gorth.current_word = val.value
 				} else {
-					interpret_tokens(words[val.value], stack, words, true, current_word, variables, constants)
+                    gorth.is_word = true
+					gorth.interpret_tokens(gorth.words[val.value])
 				}
             case at_type:
-                a := stack.pop()
-                stack.push(*(*int)(unsafe.Pointer(uintptr(a))))
+                a := gorth.stack.pop()
+                gorth.stack.push(gorth.memory[a])
             case question_type:
-                a := stack.pop()
-                fmt.Print(*(*int)(unsafe.Pointer(uintptr(a))))
+                a := gorth.stack.pop()
+                fmt.Print(gorth.memory[a])
 			case if_type:
-				if is_word {
-					a := stack.pop()
+				if gorth.is_word {
+					a := gorth.stack.pop()
 					if a == 0 {
 						for index := 0; val.category != then_type && val.category != else_type; index++ {
 							val = tokens[i]
@@ -388,8 +405,8 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 					log.Fatal("error if")
 				}
             case else_type:
-                if is_word {
-					a := stack.pop()
+                if gorth.is_word {
+					a := gorth.stack.pop()
                     if a != 0 {
                         for index := 0; val.category != then_type; index++ {
                             val = tokens[i]
@@ -401,16 +418,16 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
                 }
 			case then_type:
             case do_type:
-                if is_word {
-                    starting := stack.pop()
-                    target := stack.pop()
+                if gorth.is_word {
+                    starting := gorth.stack.pop()
+                    target := gorth.stack.pop()
                     loop.current = starting
                     loop.target = target
                 } else {
                     log.Fatal("should not do")
                 }
             case loop_type:
-                if is_word {
+                if gorth.is_word {
                     if loop.current < loop.target - 1 {
                         for index := 1; val.category != do_type; i -= index {
                             val = tokens[i] 
@@ -422,28 +439,29 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
                     log.Fatal("should not do")
                 }
             case i_type:
-                if is_word {
-                    stack.push(loop.current)
+                if gorth.is_word {
+                    gorth.stack.push(loop.current)
                 } else {
                     log.Fatal("should not do")
                 }
             case variable_type:
                 i++
                 val = tokens[i]
-                _, cok := constants[val.value]
+                _, cok := gorth.constants[val.value]
                 if cok {
-                    delete(constants, val.value)
+                    delete(gorth.constants, val.value)
                 }
-                variables[val.value] = 0
+                gorth.variables[val.value] = len(gorth.memory) 
+                gorth.memory = append(gorth.memory, 0)
             case constant_type:
                 i++
                 val = tokens[i]
-                _, ok := variables[val.value]
+                _, ok := gorth.variables[val.value]
                 if ok {
-                    delete(variables, val.value)
+                    delete(gorth.variables, val.value)
                 }
-                a := stack.pop()
-                constants[val.value] = a
+                a := gorth.stack.pop()
+                gorth.constants[val.value] = a
 			}
 		}
 	}
@@ -452,18 +470,27 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal(fmt.Sprintf("usage: %s <file_name.forth>", os.Args[0]))
+		//log.Fatal(fmt.Sprintf("usage: %s <file_name.forth>", os.Args[0]))
 	}
 
-	filename := os.Args[1]
+	//filename := os.Args[1]
 
+    filename := "test.forth"
 	tokens := lex_file(filename)
 
-	var stack Stack
-    var current_word string
+    var gorth Gorth
+    var stack Stack
+
 	words := make(map[string][]Token)
 	variables := make(map[string]int)
 	constants := make(map[string]int)
+    var memory []int
+    gorth.stack = stack
+    gorth.words = words
+    gorth.variables = variables
+    gorth.constants = constants
+    gorth.is_word = false
+    gorth.memory = memory
 
-	interpret_tokens(tokens, &stack, words, false, current_word, variables, constants)
+	gorth.interpret_tokens(tokens)
 }
