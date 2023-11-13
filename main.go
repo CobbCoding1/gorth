@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+    "unsafe"
 )
 
 const (
@@ -40,6 +41,12 @@ const (
     do_type
     loop_type
     i_type
+    variable_type
+    constant_type
+    at_type
+    bang_type
+    plus_bang_type
+    question_type
 )
 
 type Token struct {
@@ -165,6 +172,18 @@ func lex_file(filename string) []Token {
             token.category = loop_type
         case "i":
             token.category = i_type
+        case "variable":
+            token.category = variable_type
+        case "constant":
+            token.category = constant_type
+        case "@":
+            token.category = at_type
+        case "!":
+            token.category = bang_type
+        case "+!":
+            token.category = plus_bang_type
+        case "?":
+            token.category = question_type
 		default:
 			if is_digit(val) {
 				token.category = push_type
@@ -181,7 +200,8 @@ func lex_file(filename string) []Token {
 	return tokens
 }
 
-func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is_word bool, current_word string) {
+func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is_word bool, 
+    current_word string, variables map[string]int, constants map[string]int) {
 	in_word := false
 	var word_tokens []Token
     var string_buffer string
@@ -197,7 +217,7 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
                 word_tokens = nil
 				in_word = false
 			} else if val.category == word_type {
-
+                    word_tokens = append(word_tokens, val)
             } else if val.category == printstr_type {
                 for index := 1; val.category != quote_type; i += index {
                     val = tokens[i]
@@ -323,18 +343,40 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 				fmt.Println()
 			case colon_type:
 				in_word = true
-                current_word = tokens[i + 1].value 
+                i++
+                current_word = tokens[i].value 
 			case semi_type:
 				in_word = false
 			case word_type:
-				if in_word {
+                variable, ok := variables[val.value]
+                constant, cok := constants[val.value]
+                if cok {
+                    stack.push(constant)
+                } else if ok {
+                    ptr := (int)(uintptr(unsafe.Pointer(&variable)))
+                    if tokens[i + 1].category == bang_type {
+                        a := stack.pop()
+                        variables[val.value] = a
+                    } else if tokens[i + 1].category == plus_bang_type {
+                        a := stack.pop()
+                        variables[val.value] = variable + a
+                    } else {
+                        stack.push(ptr)
+                    }
+                } else if in_word {
 					current_word = val.value
 				} else {
-					interpret_tokens(words[val.value], stack, words, true, current_word)
+					interpret_tokens(words[val.value], stack, words, true, current_word, variables, constants)
 				}
+            case at_type:
+                a := stack.pop()
+                stack.push(*(*int)(unsafe.Pointer(uintptr(a))))
+            case question_type:
+                a := stack.pop()
+                fmt.Print(*(*int)(unsafe.Pointer(uintptr(a))))
 			case if_type:
 				if is_word {
-					a := stack.peek()
+					a := stack.pop()
 					if a == 0 {
 						for index := 0; val.category != then_type && val.category != else_type; index++ {
 							val = tokens[i]
@@ -347,7 +389,7 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
 				}
             case else_type:
                 if is_word {
-					a := stack.peek()
+					a := stack.pop()
                     if a != 0 {
                         for index := 0; val.category != then_type; index++ {
                             val = tokens[i]
@@ -385,6 +427,23 @@ func interpret_tokens(tokens []Token, stack *Stack, words map[string][]Token, is
                 } else {
                     log.Fatal("should not do")
                 }
+            case variable_type:
+                i++
+                val = tokens[i]
+                _, cok := constants[val.value]
+                if cok {
+                    delete(constants, val.value)
+                }
+                variables[val.value] = 0
+            case constant_type:
+                i++
+                val = tokens[i]
+                _, ok := variables[val.value]
+                if ok {
+                    delete(variables, val.value)
+                }
+                a := stack.pop()
+                constants[val.value] = a
 			}
 		}
 	}
@@ -403,6 +462,8 @@ func main() {
 	var stack Stack
     var current_word string
 	words := make(map[string][]Token)
+	variables := make(map[string]int)
+	constants := make(map[string]int)
 
-	interpret_tokens(tokens, &stack, words, false, current_word)
+	interpret_tokens(tokens, &stack, words, false, current_word, variables, constants)
 }
